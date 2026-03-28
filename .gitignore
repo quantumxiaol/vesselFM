@@ -5,6 +5,8 @@
 *.log
 *.png
 __pycache__
+.venv/
+.env
 
 experiments
 data

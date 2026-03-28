@@ -14,6 +14,12 @@ First, set up a conda environment and install dependencies:
 
     pip install -e .
 
+Python 依赖包：
+```bash
+uv lock --default-index "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+uv sync
+
+```
 
 ## 🟢 *Zero*-Shot Segmentation
 If you are solely interested in running vesselFM's inference script for *zero*-shot segmentation of data at hand, adjust the respecitve [config file](vesselfm/seg/configs/inference.yaml) (see `#TODO`) and run:
