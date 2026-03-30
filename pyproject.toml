@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "vesselfm"
 version = "0.1.0"
@@ -24,4 +28,19 @@ dependencies = [
     "torch==2.5.1",
     "tqdm==4.67.0",
     "wandb==0.18.7",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["vesselfm*"]
+
+[tool.setuptools.package-data]
+vesselfm = [
+    "seg/configs/**/*.yaml",
+    "d_flow/**/*.yaml",
+    "d_real/config/**/*.yaml",
+    "d_drand/**/*.yaml",
 ]

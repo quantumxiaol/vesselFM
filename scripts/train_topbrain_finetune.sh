@@ -109,6 +109,7 @@ if [[ ! -f "${PRETRAIN_CKPT}" ]]; then
 fi
 
 export TOPBRAIN_FINETUNE_DIR
+cd "${REPO_ROOT}"
 
 echo "Starting finetune with:"
 echo "  data path      : ${TOPBRAIN_FINETUNE_DIR}"
@@ -120,7 +121,7 @@ if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
   echo "  CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES}"
 fi
 
-python "${REPO_ROOT}/vesselfm/seg/finetune.py" \
+python -m vesselfm.seg.finetune \
   data=eval_topbrain \
   num_shots="${NUM_SHOTS}" \
   devices="${HYDRA_DEVICES}" \

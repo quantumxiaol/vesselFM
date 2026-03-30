@@ -18,6 +18,7 @@ Python 依赖包：
 ```bash
 uv lock --default-index "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 uv sync
+uv pip install -e .
 
 ```
 

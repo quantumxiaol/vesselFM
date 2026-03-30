@@ -114,7 +114,9 @@ if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
   echo "  CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES}"
 fi
 
-python "${REPO_ROOT}/vesselfm/seg/inference.py" \
+cd "${REPO_ROOT}"
+
+python -m vesselfm.seg.inference \
   ckpt_path="${CKPT_PATH}" \
   image_path="${IMAGE_PATH}" \
   output_folder="${PRED_DIR}" \
