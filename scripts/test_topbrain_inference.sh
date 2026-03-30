@@ -65,6 +65,7 @@ INFER_DEVICE="${INFER_DEVICE:-${GPU_DEVICE}}"
 INFER_BATCH_SIZE="${INFER_BATCH_SIZE:-4}"
 INFER_PATCH_SIZE="${INFER_PATCH_SIZE:-[128,128,128]}"
 INFER_OVERLAP="${INFER_OVERLAP:-0.5}"
+OUTPUT_SUFFIX="${OUTPUT_SUFFIX:-_pred}"
 
 configure_venv_cuda_libs
 
@@ -96,11 +97,38 @@ fi
 if [[ -n "${MASK_PATH:-}" ]]; then
   MASK_PATH="$(resolve_path "${MASK_PATH}")"
   MASK_OVERRIDE="mask_path=${MASK_PATH}"
-elif [[ -d "${DATASET_DIR}/labelsTs" ]]; then
-  MASK_PATH="${DATASET_DIR}/labelsTs"
-  MASK_OVERRIDE="mask_path=${MASK_PATH}"
 else
-  MASK_OVERRIDE="mask_path=null"
+  if [[ -f "${IMAGE_PATH}" ]]; then
+    image_name="$(basename "${IMAGE_PATH}")"
+    if [[ -f "${DATASET_DIR}/labelsTs/${image_name}" ]]; then
+      MASK_PATH="${DATASET_DIR}/labelsTs/${image_name}"
+      MASK_OVERRIDE="mask_path=${MASK_PATH}"
+    elif [[ -f "${DATASET_DIR}/labelsTr/${image_name}" ]]; then
+      MASK_PATH="${DATASET_DIR}/labelsTr/${image_name}"
+      MASK_OVERRIDE="mask_path=${MASK_PATH}"
+    else
+      MASK_OVERRIDE="mask_path=null"
+    fi
+  elif [[ -d "${IMAGE_PATH}" ]]; then
+    if [[ "${IMAGE_PATH}" == */imagesTs ]] && [[ -d "${DATASET_DIR}/labelsTs" ]]; then
+      MASK_PATH="${DATASET_DIR}/labelsTs"
+      MASK_OVERRIDE="mask_path=${MASK_PATH}"
+    elif [[ "${IMAGE_PATH}" == */imagesTr ]] && [[ -d "${DATASET_DIR}/labelsTr" ]]; then
+      MASK_PATH="${DATASET_DIR}/labelsTr"
+      MASK_OVERRIDE="mask_path=${MASK_PATH}"
+    elif [[ -d "${DATASET_DIR}/labelsTs" ]]; then
+      MASK_PATH="${DATASET_DIR}/labelsTs"
+      MASK_OVERRIDE="mask_path=${MASK_PATH}"
+    elif [[ -d "${DATASET_DIR}/labelsTr" ]]; then
+      MASK_PATH="${DATASET_DIR}/labelsTr"
+      MASK_OVERRIDE="mask_path=${MASK_PATH}"
+    else
+      MASK_OVERRIDE="mask_path=null"
+    fi
+  else
+    echo "IMAGE_PATH does not exist: ${IMAGE_PATH}" >&2
+    exit 1
+  fi
 fi
 
 PRED_DIR="$(resolve_path "${PRED_DIR:-${OUTPUTS_DIR}/topbrain_predictions}")"
@@ -144,6 +172,7 @@ echo "  checkpoint : ${CKPT_PATH}"
 echo "  image path : ${IMAGE_PATH}"
 echo "  output path: ${PRED_DIR}"
 echo "  device     : ${DEVICE_ARG}"
+echo "  out suffix : ${OUTPUT_SUFFIX}"
 if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
   echo "  CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES}"
 fi
@@ -158,4 +187,5 @@ python -m vesselfm.seg.inference \
   batch_size="${INFER_BATCH_SIZE}" \
   patch_size="${INFER_PATCH_SIZE}" \
   overlap="${INFER_OVERLAP}" \
+  output_suffix="${OUTPUT_SUFFIX}" \
   "${MASK_OVERRIDE}"

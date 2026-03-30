@@ -17,5 +17,6 @@ outputs
 wandb
 
 data/
+test_data/
 modelsweights/
 checkpoints/

@@ -52,13 +52,53 @@ def load_model(cfg, device):
     model.load_state_dict(extract_state_dict(ckpt), strict=True)
     return model
 
+
+def strip_nifti_suffix(path: Path) -> str:
+    name = path.name
+    if name.endswith(".nii.gz"):
+        return name[:-7]
+    if name.endswith(".nii"):
+        return name[:-4]
+    return path.stem
+
+
+def resolve_output_suffix(cfg) -> str:
+    if hasattr(cfg, "output_suffix") and cfg.output_suffix is not None:
+        suffix = str(cfg.output_suffix)
+    else:
+        # backward compatibility with old naming style
+        suffix = f"_{cfg.file_app}pred" if getattr(cfg, "file_app", "") else "_pred"
+    if suffix and not suffix.startswith("_"):
+        suffix = f"_{suffix}"
+    return suffix
+
+
+def list_images(image_path: Path, file_ending: str):
+    if image_path.is_file():
+        return [image_path]
+    if image_path.is_dir():
+        paths = [p for p in sorted(image_path.iterdir()) if p.is_file()]
+        if file_ending:
+            paths = [p for p in paths if p.name.lower().endswith(file_ending.lower())]
+        return paths
+    raise FileNotFoundError(f"image_path does not exist: {image_path}")
+
+
 def get_paths(cfg):
-    image_paths = list(Path(cfg.image_path).iterdir())
+    image_paths = list_images(Path(cfg.image_path), cfg.image_file_ending)
+    if len(image_paths) == 0:
+        raise RuntimeError(f"No images found in {cfg.image_path} with ending '{cfg.image_file_ending}'.")
     if cfg.mask_path:
-        mask_paths = [Path(cfg.mask_path) / f"{p.name}" for p in image_paths]
-        assert all(
-            mask_path.exists() for mask_path in mask_paths
-        ), "All mask paths must exist mask name has to be the same as the image name."
+        mask_input_path = Path(cfg.mask_path)
+        if mask_input_path.is_file():
+            if len(image_paths) != 1:
+                raise RuntimeError("mask_path is a file but image_path contains multiple images.")
+            mask_paths = [mask_input_path]
+        else:
+            mask_paths = [mask_input_path / p.name for p in image_paths]
+            assert all(
+                mask_path.exists() for mask_path in mask_paths
+            ), "All mask paths must exist and mask names must match image names."
     else:
         mask_paths = None
     return image_paths, mask_paths
@@ -101,6 +141,7 @@ def main(cfg):
     logger.info(f"Found {len(image_paths)} images in {cfg.image_path}.")
 
     file_ending = (cfg.image_file_ending if cfg.image_file_ending else image_paths[0].suffix)
+    output_suffix = resolve_output_suffix(cfg)
     image_reader_writer = determine_reader_writer(file_ending)()
     save_writer = determine_reader_writer(file_ending)()
 
@@ -152,15 +193,16 @@ def main(cfg):
                 )
 
             # save final pred
+            image_stem = strip_nifti_suffix(image_path)
             save_writer.write_seg(
-                pred_thresh.astype(np.uint8), output_folder / f"{image_path.name.split('.')[0]}_{cfg.file_app}pred.{file_ending}"
+                pred_thresh.astype(np.uint8), output_folder / f"{image_stem}{output_suffix}.{file_ending}"
             )
 
             if mask_paths is not None:
                 metrics = Evaluator().estimate_metrics(pred, mask, threshold=cfg.merging.threshold) # no post-processing
-                logger.info(f"Dice of {image_path.name.split('.')[0]}: {metrics['dice'].item()}")
-                logger.info(f"clDice of {image_path.name.split('.')[0]}: {metrics['cldice'].item()}")
-                metrics_dict[image_path.name.split('.')[0]] = metrics
+                logger.info(f"Dice of {image_stem}: {metrics['dice'].item()}")
+                logger.info(f"clDice of {image_stem}: {metrics['cldice'].item()}")
+                metrics_dict[image_stem] = metrics
 
     if mask_paths is not None:
         mean_metrics = calculate_mean_metrics(list(metrics_dict.values()), round_to=cfg.round_to)

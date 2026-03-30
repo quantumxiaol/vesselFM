@@ -8,6 +8,7 @@ image_path: /path/to/image_folder #TODO
 image_file_ending: nii.gz
 output_folder: /path/to/output_folder # TODO
 file_app: ""
+output_suffix: _pred
 
 mask_path: null
 round_to: 2
