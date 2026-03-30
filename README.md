@@ -107,6 +107,15 @@ INFER_DEVICE=0 bash ./scripts/test_topbrain_inference.sh
 
 注意：环境变量名是 `CUDA_VISIBLE_DEVICES`（不是 `CUDA_VISABLE_DEVICE`）。
 
+常见报错排查（`__nvJitLinkComplete_12_4`）：
+- 现象：
+  - `ImportError: ... libcusparse.so.12: undefined symbol: __nvJitLinkComplete_12_4`
+- 原因：
+  - 运行时加载到了系统/conda 的旧 `libnvJitLink.so.12`，与 PyTorch wheel 里的 `cusparse` 版本不匹配。
+- 处理：
+  - 使用本仓库 `scripts/train_topbrain_finetune.sh` / `scripts/test_topbrain_inference.sh`（脚本已自动把 `.venv` 的 `nvidia/*/lib` 注入 `LD_LIBRARY_PATH`）。
+  - 建议退出 `base` 后再运行，仅保留项目虚拟环境。
+
 ## 🟢 *Zero*-Shot Segmentation
 If you are solely interested in running vesselFM's inference script for *zero*-shot segmentation of data at hand, adjust the respecitve [config file](vesselfm/seg/configs/inference.yaml) (see `#TODO`) and run:
 

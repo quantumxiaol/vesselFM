@@ -20,6 +20,30 @@ resolve_path() {
   fi
 }
 
+prepend_ld_library_path() {
+  local path_to_add="$1"
+  [[ -d "${path_to_add}" ]] || return
+  if [[ -z "${LD_LIBRARY_PATH:-}" ]]; then
+    LD_LIBRARY_PATH="${path_to_add}"
+  elif [[ ":${LD_LIBRARY_PATH}:" != *":${path_to_add}:"* ]]; then
+    LD_LIBRARY_PATH="${path_to_add}:${LD_LIBRARY_PATH}"
+  fi
+}
+
+configure_venv_cuda_libs() {
+  [[ -n "${VIRTUAL_ENV:-}" ]] || return
+  local p
+  for p in \
+    "${VIRTUAL_ENV}"/lib/python*/site-packages/nvidia/nvjitlink/lib \
+    "${VIRTUAL_ENV}"/lib/python*/site-packages/nvidia/cusparse/lib \
+    "${VIRTUAL_ENV}"/lib/python*/site-packages/nvidia/cudnn/lib \
+    "${VIRTUAL_ENV}"/lib/python*/site-packages/nvidia/cublas/lib \
+    "${VIRTUAL_ENV}"/lib/python*/site-packages/nvidia/cuda_runtime/lib; do
+    prepend_ld_library_path "${p}"
+  done
+  export LD_LIBRARY_PATH
+}
+
 DATASET_DIR="$(resolve_path "${DATASET_DIR:-./data/datasets/topBrain-2025}")"
 CHECKPOINTS_DIR="$(resolve_path "${CHECKPOINTS_DIR:-./checkpoints}")"
 OUTPUTS_DIR="$(resolve_path "${OUTPUTS_DIR:-./outputs}")"
@@ -29,6 +53,8 @@ INFER_DEVICE="${INFER_DEVICE:-${GPU_DEVICE}}"
 INFER_BATCH_SIZE="${INFER_BATCH_SIZE:-4}"
 INFER_PATCH_SIZE="${INFER_PATCH_SIZE:-[128,128,128]}"
 INFER_OVERLAP="${INFER_OVERLAP:-0.5}"
+
+configure_venv_cuda_libs
 
 mkdir -p "${OUTPUTS_DIR}"
 
