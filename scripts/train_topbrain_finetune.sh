@@ -86,6 +86,19 @@ configure_venv_cuda_libs
 
 mkdir -p "${CHECKPOINTS_DIR}" "${OUTPUTS_DIR}"
 
+DATA_CONFIG_NAME="eval_topbrain"
+DATA_CONFIG_PATH="${REPO_ROOT}/vesselfm/seg/configs/data/${DATA_CONFIG_NAME}.yaml"
+DATA_OVERRIDES=()
+if [[ ! -f "${DATA_CONFIG_PATH}" ]]; then
+  echo "Config ${DATA_CONFIG_NAME}.yaml not found, fallback to eval_smile with TopBrain overrides."
+  DATA_CONFIG_NAME="eval_smile"
+  DATA_OVERRIDES=(
+    "data.SMILE.path=${TOPBRAIN_FINETUNE_DIR}"
+    "data.SMILE.file_format=nii.gz"
+    "data.SMILE.sample_prop=1"
+  )
+fi
+
 if [[ ! -d "${TOPBRAIN_FINETUNE_DIR}/train" || ! -d "${TOPBRAIN_FINETUNE_DIR}/val" || ! -d "${TOPBRAIN_FINETUNE_DIR}/test" ]]; then
   echo "Prepared split dataset not found, running prepare script..."
   python "${REPO_ROOT}/scripts/prepare_topbrain_finetune_data.py" \
@@ -122,7 +135,7 @@ if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
 fi
 
 python -m vesselfm.seg.finetune \
-  data=eval_topbrain \
+  "data=${DATA_CONFIG_NAME}" \
   num_shots="${NUM_SHOTS}" \
   devices="${HYDRA_DEVICES}" \
   path_to_chkpt="${PRETRAIN_CKPT}" \
@@ -135,4 +148,5 @@ python -m vesselfm.seg.finetune \
   dataloader.num_workers="${NUM_WORKERS}" \
   dataloader.prefetch_factor="${PREFETCH_FACTOR}" \
   trainer.lightning_trainer.max_steps="${MAX_STEPS}" \
-  trainer.lightning_trainer.val_check_interval="${VAL_CHECK_INTERVAL}"
+  trainer.lightning_trainer.val_check_interval="${VAL_CHECK_INTERVAL}" \
+  "${DATA_OVERRIDES[@]}"
