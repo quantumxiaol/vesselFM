@@ -14,3 +14,7 @@ runs
 ckpts
 outputs
 wandb
+
+data/
+modelsweights/
+checkpoints/

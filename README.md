@@ -21,6 +21,42 @@ uv sync
 
 ```
 
+## 🟢 TopBrain 数据与权重下载
+脚本位于 `scripts/`，默认会读取根目录 `.env` 中的变量：
+
+```bash
+DATASET_DIR=./data/datasets/topBrain-2025
+DATASET_ROOT_DIR=./data/datasets
+HF_HOME=./modelsweights
+```
+
+1) 下载 TopBrain 2025 数据集（Zenodo）并整理目录：
+
+```bash
+./scripts/download_topbrain_data.sh
+```
+
+- 下载到：`${DATASET_ROOT_DIR}/download`
+- 解压整理到：`${DATASET_DIR}`（自动合并 `imagesTr/labelsTr/imagesTs/labelsTs`，若存在）
+- 默认来源：
+  - https://zenodo.org/records/16623496
+  - https://zenodo.org/records/16878417
+
+2) 下载 VesselFM 预训练权重：
+
+```bash
+./scripts/download_vesselfm_weights.sh
+```
+
+- 下载到：`${HF_HOME}`
+- 默认下载源（Hugging Face 仓库 `bwittmann/vesselFM`）：
+  - `https://huggingface.co/bwittmann/vesselFM/resolve/main/vesselFM_base.pt`
+  - `https://huggingface.co/bwittmann/vesselFM/resolve/main/meta.yaml`
+
+可选参数：
+- 指定数据集 URL：`./scripts/download_topbrain_data.sh <url1> <url2> ...`
+- 指定权重文件：`./scripts/download_vesselfm_weights.sh <hf_file1> <hf_file2> ...`
+
 ## 🟢 *Zero*-Shot Segmentation
 If you are solely interested in running vesselFM's inference script for *zero*-shot segmentation of data at hand, adjust the respecitve [config file](vesselfm/seg/configs/inference.yaml) (see `#TODO`) and run:
 
