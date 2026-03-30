@@ -62,6 +62,17 @@ def strip_nifti_suffix(path: Path) -> str:
     return path.stem
 
 
+def normalize_case_id_from_name(name: str) -> str:
+    stem = name
+    if stem.endswith(".nii.gz"):
+        stem = stem[:-7]
+    elif stem.endswith(".nii"):
+        stem = stem[:-4]
+    if stem.endswith("_0000"):
+        stem = stem[:-5]
+    return stem
+
+
 def resolve_output_suffix(cfg) -> str:
     if hasattr(cfg, "output_suffix") and cfg.output_suffix is not None:
         suffix = str(cfg.output_suffix)
@@ -95,10 +106,32 @@ def get_paths(cfg):
                 raise RuntimeError("mask_path is a file but image_path contains multiple images.")
             mask_paths = [mask_input_path]
         else:
-            mask_paths = [mask_input_path / p.name for p in image_paths]
-            assert all(
-                mask_path.exists() for mask_path in mask_paths
-            ), "All mask paths must exist and mask names must match image names."
+            # 1) exact filename match
+            # 2) fallback to case-id match (e.g. image *_0000.nii.gz -> mask *.nii.gz)
+            available_masks = [p for p in sorted(mask_input_path.iterdir()) if p.is_file()]
+            exact_lookup = {p.name: p for p in available_masks}
+            case_lookup = {}
+            for p in available_masks:
+                case_lookup[normalize_case_id_from_name(p.name)] = p
+
+            mask_paths = []
+            missing = []
+            for image_path in image_paths:
+                chosen = exact_lookup.get(image_path.name)
+                if chosen is None:
+                    chosen = case_lookup.get(normalize_case_id_from_name(image_path.name))
+                if chosen is None:
+                    missing.append(image_path.name)
+                    mask_paths.append(None)
+                else:
+                    mask_paths.append(chosen)
+
+            if missing:
+                missing_preview = ", ".join(missing[:5])
+                raise AssertionError(
+                    "All mask paths must exist and names must be mappable. "
+                    f"Missing {len(missing)} masks, examples: {missing_preview}"
+                )
     else:
         mask_paths = None
     return image_paths, mask_paths
