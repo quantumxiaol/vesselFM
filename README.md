@@ -57,6 +57,56 @@ HF_HOME=./modelsweights
 - 指定数据集 URL：`./scripts/download_topbrain_data.sh <url1> <url2> ...`
 - 指定权重文件：`./scripts/download_vesselfm_weights.sh <hf_file1> <hf_file2> ...`
 
+## 🟢 TopBrain 训练与微调
+VesselFM 当前微调代码读取的是目录结构（`train/val/test` 下每个样本目录内有 `img.*` + `mask.*`），不是 CSV 驱动。
+`scripts/prepare_topbrain_finetune_data.py` 会自动把 `imagesTr/labelsTr(/imagesTs/labelsTs)` 转成该结构，并额外生成一个绝对路径清单 `manifest.csv` 便于追踪。
+
+1) 准备微调数据（生成 `vesselfm_finetune` + `manifest.csv`）：
+
+```bash
+python ./scripts/prepare_topbrain_finetune_data.py --force
+```
+
+2) 开始微调（自动读取 `.env`，模型保存到 `checkpoints/`）：
+
+```bash
+bash ./scripts/train_topbrain_finetune.sh
+```
+
+3) 用微调模型推理（输出保存到 `outputs/`）：
+
+```bash
+bash ./scripts/test_topbrain_inference.sh
+```
+
+脚本默认路径：
+- 微调数据目录：`${TOPBRAIN_FINETUNE_DIR}`（默认 `./data/datasets/topBrain-2025/vesselfm_finetune`）
+- 预训练权重：`${PRETRAIN_CKPT}`（默认 `./modelsweights/vesselFM_base.pt`）
+- 训练 checkpoint：`${CHECKPOINTS_DIR}`（默认 `./checkpoints`）
+- 推理输出：`${OUTPUTS_DIR}`（默认 `./outputs`）
+
+可选环境变量：
+- `NUM_SHOTS`：`all` 或整数（few-shot）
+- `BATCH_SIZE`、`INPUT_SIZE`：按显存调参
+- `CKPT_PATH`：测试脚本指定要使用的 checkpoint（不设则自动选 `checkpoints/` 下最新 `.ckpt`）
+- `TRAIN_DEVICES`：训练使用的设备，可写 `0` 或 `0,1`（多卡）
+- `INFER_DEVICE`：推理使用单卡，可写 `0` 或 `cuda:0`
+
+多卡训练与 CUDA 设备可见性：
+
+```bash
+# 例1：使用物理 GPU 2,3 做训练（进程内映射为 cuda:0,cuda:1）
+export CUDA_VISIBLE_DEVICES=2,3
+TRAIN_DEVICES=0,1 bash ./scripts/train_topbrain_finetune.sh
+
+# 例2：单卡训练/推理
+export CUDA_VISIBLE_DEVICES=0
+TRAIN_DEVICES=0 bash ./scripts/train_topbrain_finetune.sh
+INFER_DEVICE=0 bash ./scripts/test_topbrain_inference.sh
+```
+
+注意：环境变量名是 `CUDA_VISIBLE_DEVICES`（不是 `CUDA_VISABLE_DEVICE`）。
+
 ## 🟢 *Zero*-Shot Segmentation
 If you are solely interested in running vesselFM's inference script for *zero*-shot segmentation of data at hand, adjust the respecitve [config file](vesselfm/seg/configs/inference.yaml) (see `#TODO`) and run:
 

@@ -22,20 +22,34 @@ from vesselfm.seg.utils.evaluation import Evaluator, calculate_mean_metrics
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
+
+def extract_state_dict(ckpt):
+    """
+    Supports:
+    1) Raw model state_dict
+    2) Lightning checkpoint with "state_dict" and optional "model." prefix
+    """
+    if isinstance(ckpt, dict) and "state_dict" in ckpt:
+        return {k.replace("model.", ""): v for k, v in ckpt["state_dict"].items() if k.startswith("model.")}
+    if isinstance(ckpt, dict):
+        return ckpt
+    raise ValueError(f"Unsupported checkpoint format: {type(ckpt)}")
+
+
 def load_model(cfg, device):
     try:
         logger.info(f"Loading model from {cfg.ckpt_path}.")
-        ckpt = torch.load(Path(cfg.ckpt_path), map_location=device, weights_only=True)
+        ckpt = torch.load(Path(cfg.ckpt_path), map_location=device)
     except:
         logger.info(f"Loading model from Hugging Face.")
         hf_hub_download(repo_id='bwittmann/vesselFM', filename='meta.yaml') # required to track downloads
         ckpt = torch.load(
             hf_hub_download(repo_id='bwittmann/vesselFM', filename='vesselFM_base.pt'),
-            map_location=device, weights_only=True
+            map_location=device
         )
 
     model = hydra.utils.instantiate(cfg.model)
-    model.load_state_dict(ckpt)
+    model.load_state_dict(extract_state_dict(ckpt), strict=True)
     return model
 
 def get_paths(cfg):

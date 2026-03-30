@@ -7,6 +7,7 @@ import torch
 import torch.utils
 from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
+from pathlib import Path
 
 from lightning.pytorch import seed_everything
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
@@ -17,6 +18,27 @@ from vesselfm.seg.utils.evaluation import PretrainEvaluationDataset, Evaluator
 
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
+
+
+def load_pretrained_weights(model, ckpt_path, device):
+    """
+    Supports both:
+    1) Lightning checkpoints containing "state_dict" with keys prefixed by "model."
+    2) Raw model state_dict checkpoints
+    """
+    ckpt_path = Path(ckpt_path)
+    logger.info(f"Loading pretrained checkpoint from {ckpt_path}")
+    ckpt = torch.load(ckpt_path, map_location=device)
+
+    if isinstance(ckpt, dict) and "state_dict" in ckpt:
+        state_dict = {k.replace("model.", ""): v for k, v in ckpt["state_dict"].items() if k.startswith("model.")}
+    elif isinstance(ckpt, dict):
+        state_dict = ckpt
+    else:
+        raise ValueError(f"Unsupported checkpoint format: {type(ckpt)}")
+
+    model.load_state_dict(state_dict, strict=True)
+    logger.info(f"Loaded {len(state_dict)} model tensors.")
 
 
 @hydra.main(config_path="configs", config_name="train", version_base="1.3.2")
@@ -72,9 +94,7 @@ def main(cfg):
     # init model
     model = hydra.utils.instantiate(cfg.model)
     if cfg.path_to_chkpt is not None:
-        chkpt = torch.load(cfg.path_to_chkpt, map_location=f'cuda:{cfg.devices[0]}')
-        model_chkpt = {k.replace("model.", ""): e for k, e in chkpt["state_dict"].items() if "model" in k}
-        model.load_state_dict(model_chkpt)
+        load_pretrained_weights(model, cfg.path_to_chkpt, device=f"cuda:{cfg.devices[0]}")
 
     # init lightning module
     evaluator = Evaluator()
