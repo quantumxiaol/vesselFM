@@ -28,7 +28,9 @@ def load_pretrained_weights(model, ckpt_path, device):
     """
     ckpt_path = Path(ckpt_path)
     logger.info(f"Loading pretrained checkpoint from {ckpt_path}")
-    ckpt = torch.load(ckpt_path, map_location=device)
+    # Always load checkpoint on CPU first to avoid invalid CUDA index issues
+    # when users pass physical GPU ids instead of visible-device-relative ids.
+    ckpt = torch.load(ckpt_path, map_location="cpu")
 
     if isinstance(ckpt, dict) and "state_dict" in ckpt:
         state_dict = {k.replace("model.", ""): v for k, v in ckpt["state_dict"].items() if k.startswith("model.")}

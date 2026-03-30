@@ -81,7 +81,38 @@ normalize_devices_for_hydra() {
   echo "[${raw}]"
 }
 
+validate_devices_with_visible_env() {
+  local devices_expr="$1"   # e.g. [0,1]
+  local visible_raw="${CUDA_VISIBLE_DEVICES:-}"
+  if [[ -z "${visible_raw}" ]]; then
+    return
+  fi
+
+  local visible_no_space="${visible_raw// /}"
+  IFS=',' read -r -a visible_arr <<< "${visible_no_space}"
+  local visible_count="${#visible_arr[@]}"
+
+  local inside="${devices_expr#[}"
+  inside="${inside%]}"
+  IFS=',' read -r -a train_arr <<< "${inside}"
+  local idx
+  for idx in "${train_arr[@]}"; do
+    [[ -n "${idx}" ]] || continue
+    if ! [[ "${idx}" =~ ^[0-9]+$ ]]; then
+      echo "Invalid TRAIN_DEVICES entry: ${idx}" >&2
+      exit 1
+    fi
+    if (( idx >= visible_count )); then
+      echo "TRAIN_DEVICES=${devices_expr} is incompatible with CUDA_VISIBLE_DEVICES=${visible_raw}." >&2
+      echo "Visible GPU count is ${visible_count}, so valid device ids are 0..$((visible_count - 1))." >&2
+      echo "Example: if CUDA_VISIBLE_DEVICES=2,5 then TRAIN_DEVICES should be 0,1." >&2
+      exit 1
+    fi
+  done
+}
+
 HYDRA_DEVICES="$(normalize_devices_for_hydra "${TRAIN_DEVICES}")"
+validate_devices_with_visible_env "${HYDRA_DEVICES}"
 configure_venv_cuda_libs
 
 mkdir -p "${CHECKPOINTS_DIR}" "${OUTPUTS_DIR}"
