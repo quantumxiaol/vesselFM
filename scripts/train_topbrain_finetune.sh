@@ -4,12 +4,24 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
 
-if [[ -f "${REPO_ROOT}/.env" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "${REPO_ROOT}/.env"
-  set +a
-fi
+load_env_defaults() {
+  local env_file="$1"
+  [[ -f "${env_file}" ]] || return
+  while IFS='=' read -r raw_key raw_value || [[ -n "${raw_key}" ]]; do
+    local key="${raw_key#"${raw_key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    key="${key#export }"
+    [[ -z "${key}" || "${key:0:1}" == "#" ]] && continue
+
+    local value="${raw_value-}"
+    value="${value%$'\r'}"
+    if [[ -z "${!key+x}" ]]; then
+      export "${key}=${value}"
+    fi
+  done < "${env_file}"
+}
+
+load_env_defaults "${REPO_ROOT}/.env"
 
 resolve_path() {
   local maybe_relative="$1"
@@ -195,6 +207,7 @@ echo "  data path      : ${TOPBRAIN_FINETUNE_DIR}"
 echo "  pretrained ckpt: ${PRETRAIN_CKPT}"
 echo "  checkpoints    : ${CHECKPOINTS_DIR}"
 echo "  num_shots      : ${NUM_SHOTS}"
+echo "  batch_size     : ${BATCH_SIZE}"
 echo "  train devices  : ${HYDRA_DEVICES}"
 if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
   echo "  CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES}"

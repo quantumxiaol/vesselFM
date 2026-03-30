@@ -92,6 +92,7 @@ bash ./scripts/test_topbrain_inference.sh
 - `CKPT_PATH`：测试脚本指定要使用的 checkpoint（不设则自动选 `checkpoints/` 下最新 `.ckpt`）
 - `TRAIN_DEVICES`：训练使用的设备，可写 `0` 或 `0,1`（多卡）
 - `INFER_DEVICE`：推理使用单卡，可写 `0` 或 `cuda:0`
+- 脚本会把 `.env` 当作默认值；你在命令前临时设置的环境变量会优先级更高。
 
 多卡训练与 CUDA 设备可见性：
 
