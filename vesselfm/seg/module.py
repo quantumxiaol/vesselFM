@@ -26,7 +26,7 @@ class PLModule(lightning.LightningModule):
         self.optimizer_factory = optimizer_factory
         self.scheduler_configs = scheduler_configs
         self.prediction_threshold = prediction_threshold
-        self.rank = 0 if "LOCAL_RANK" not in os.environ else os.environ["LOCAL_RANK"]
+        self.rank = int(os.environ.get("LOCAL_RANK", 0))
         self.evaluator = evaluator
 
     def configure_optimizers(self):
@@ -50,21 +50,22 @@ class PLModule(lightning.LightningModule):
         image, mask = batch
         pred_mask = self.model(image)
         loss = self.loss(pred_mask, mask)
-        self.log(f"train_loss", loss.item(), logger=(self.rank == 0))
+        self.log("train_loss", loss, logger=(self.rank == 0), sync_dist=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         image, mask, name = batch
         pred_mask = self.model(image)
         loss = self.loss(pred_mask, mask)
-        self.log("val_loss", loss.item(), logger=(self.rank == 0))
+        self.log("val_loss", loss, logger=(self.rank == 0), sync_dist=True)
 
         metrics = self.evaluator.estimate_metrics(
             pred_mask.sigmoid().squeeze(), mask.squeeze(), threshold=self.prediction_threshold
         )
         for metric, value in metrics.items():
-            value = value.item() if isinstance(value, (torch.Tensor, np.ndarray)) else value
-            self.log(f"val_{name[0]}_{metric}", value, logger=(self.rank == 0))
+            if isinstance(value, np.ndarray):
+                value = float(value)
+            self.log(f"val_{name[0]}_{metric}", value, logger=(self.rank == 0), sync_dist=True)
 
 
 class PLModuleFinetune(PLModule):
@@ -91,17 +92,32 @@ class PLModuleFinetune(PLModule):
         with torch.no_grad():
             pred_mask = self.sliding_window_inferer(image, self.model)
             loss = self.loss(pred_mask, mask)
-            self.log(f"{self.dataset_name}_val_loss", loss.item())
+            self.log(
+                f"{self.dataset_name}_val_loss",
+                loss,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
 
             metrics = self.evaluator.estimate_metrics(
                 pred_mask.sigmoid().squeeze(), mask.squeeze(), threshold=self.prediction_threshold, fast=True
             )
             for name, value in metrics.items():
-                value = value.item() if isinstance(value, (torch.Tensor, np.ndarray)) else value
-                self.log(f"{self.dataset_name}_val_{name}", value)
+                if isinstance(value, torch.Tensor):
+                    value = value.detach().float()
+                elif isinstance(value, np.ndarray):
+                    value = float(value)
+                self.log(
+                    f"{self.dataset_name}_val_{name}",
+                    value,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=True,
+                )
                 
                 if name == "dice":
-                    self.log("val_DiceMetric", value)
+                    self.log("val_DiceMetric", value, on_step=False, on_epoch=True, sync_dist=True)
 
         return loss
 
@@ -110,13 +126,28 @@ class PLModuleFinetune(PLModule):
         with torch.no_grad():
             pred_mask = self.sliding_window_inferer(image, self.model)
             loss = self.loss(pred_mask, mask)
-            self.log(f"{self.dataset_name}_test_loss", loss.item())
+            self.log(
+                f"{self.dataset_name}_test_loss",
+                loss,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
 
             metrics = self.evaluator.estimate_metrics(
                 pred_mask.sigmoid().squeeze(), mask.squeeze(), threshold=self.prediction_threshold
             )
             for name, value in metrics.items():
-                value = value.item() if isinstance(value, (torch.Tensor, np.ndarray)) else value
-                self.log(f"{self.dataset_name}_test_{name}", value)
+                if isinstance(value, torch.Tensor):
+                    value = value.detach().float()
+                elif isinstance(value, np.ndarray):
+                    value = float(value)
+                self.log(
+                    f"{self.dataset_name}_test_{name}",
+                    value,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=True,
+                )
 
         return loss

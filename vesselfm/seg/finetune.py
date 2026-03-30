@@ -1,6 +1,7 @@
 import logging
 import sys
 import warnings
+import os
 
 import hydra
 import torch
@@ -8,6 +9,8 @@ import torch.utils
 from omegaconf import OmegaConf
 from torch.utils.data import RandomSampler, Subset
 from pathlib import Path
+import torch.distributed as dist
+from typing import Optional
 
 from lightning.pytorch import seed_everything
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
@@ -41,6 +44,29 @@ def load_pretrained_weights(model, ckpt_path, device):
 
     model.load_state_dict(state_dict, strict=True)
     logger.info(f"Loaded {len(state_dict)} model tensors.")
+
+
+def broadcast_from_rank0(value: str) -> str:
+    if dist.is_available() and dist.is_initialized():
+        payload = [value if dist.get_rank() == 0 else ""]
+        dist.broadcast_object_list(payload, src=0)
+        return payload[0]
+    return value
+
+
+def resolve_test_checkpoint(checkpoint_callback) -> Optional[str]:
+    best_path = checkpoint_callback.best_model_path if checkpoint_callback.best_model_path else ""
+    best_path = broadcast_from_rank0(best_path)
+    if best_path and os.path.exists(best_path):
+        return best_path
+
+    last_path = checkpoint_callback.last_model_path if checkpoint_callback.last_model_path else ""
+    last_path = broadcast_from_rank0(last_path)
+    if last_path and os.path.exists(last_path):
+        logger.warning(f"Best checkpoint not found. Falling back to last checkpoint: {last_path}")
+        return last_path
+
+    return None
 
 
 @hydra.main(config_path="configs", config_name="finetune", version_base="1.3.2")
@@ -117,7 +143,15 @@ def main(cfg):
         trainer.validate(lightning_module, val_loader)
         trainer.fit(lightning_module, train_loader, val_loader)
         logger.info("Finished training")
-        trainer.test(lightning_module, test_loader, ckpt_path="best")
+        if hasattr(trainer, "strategy") and hasattr(trainer.strategy, "barrier"):
+            trainer.strategy.barrier()
+        test_ckpt = resolve_test_checkpoint(checkpoint_callback)
+        if test_ckpt is None:
+            logger.warning("No saved checkpoint available for testing. Testing current in-memory weights.")
+            trainer.test(lightning_module, test_loader)
+        else:
+            logger.info(f"Testing using checkpoint: {test_ckpt}")
+            trainer.test(lightning_module, test_loader, ckpt_path=test_ckpt)
 
 
 if __name__ == "__main__":
