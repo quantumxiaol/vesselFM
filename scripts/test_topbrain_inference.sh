@@ -100,10 +100,32 @@ if [[ "${INFER_DEVICE}" == *,* ]]; then
 fi
 
 if [[ "${INFER_DEVICE}" == cuda:* ]]; then
-  DEVICE_ARG="${INFER_DEVICE}"
+  INFER_DEVICE_IDX="${INFER_DEVICE#cuda:}"
+elif [[ "${INFER_DEVICE}" =~ ^[0-9]+$ ]]; then
+  INFER_DEVICE_IDX="${INFER_DEVICE}"
 else
-  DEVICE_ARG="cuda:${INFER_DEVICE}"
+  echo "INFER_DEVICE must be an integer id or cuda:<id>, got: ${INFER_DEVICE}" >&2
+  exit 1
 fi
+
+if [[ ! "${INFER_DEVICE_IDX}" =~ ^[0-9]+$ ]]; then
+  echo "INFER_DEVICE index must be numeric, got: ${INFER_DEVICE_IDX}" >&2
+  exit 1
+fi
+
+if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
+  visible_no_space="${CUDA_VISIBLE_DEVICES// /}"
+  IFS=',' read -r -a visible_arr <<< "${visible_no_space}"
+  visible_count="${#visible_arr[@]}"
+  if (( INFER_DEVICE_IDX >= visible_count )); then
+    echo "INFER_DEVICE=${INFER_DEVICE} is incompatible with CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}." >&2
+    echo "Visible GPU count is ${visible_count}, so valid ids are 0..$((visible_count - 1))." >&2
+    echo "Example: if CUDA_VISIBLE_DEVICES=2,5 then INFER_DEVICE should be 0 or 1." >&2
+    exit 1
+  fi
+fi
+
+DEVICE_ARG="cuda:${INFER_DEVICE_IDX}"
 
 echo "Running inference with:"
 echo "  checkpoint : ${CKPT_PATH}"

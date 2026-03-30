@@ -152,6 +152,41 @@ if [[ ! -f "${PRETRAIN_CKPT}" ]]; then
   exit 1
 fi
 
+count_devices_in_expr() {
+  local expr="$1"   # e.g. [0,1]
+  local inside="${expr#[}"
+  inside="${inside%]}"
+  inside="${inside// /}"
+  [[ -z "${inside}" ]] && { echo "1"; return; }
+  local count=1
+  local rest="${inside}"
+  while [[ "${rest}" == *","* ]]; do
+    count=$((count + 1))
+    rest="${rest#*,}"
+  done
+  echo "${count}"
+}
+
+ceil_div() {
+  local a="$1"
+  local b="$2"
+  echo $(((a + b - 1) / b))
+}
+
+# Lightning requires val_check_interval <= num_training_batches when using int.
+if [[ "${VAL_CHECK_INTERVAL}" =~ ^[0-9]+$ ]]; then
+  WORLD_SIZE="$(count_devices_in_expr "${HYDRA_DEVICES}")"
+  per_rank_samples="$(ceil_div "${NUM_SHOTS}" "${WORLD_SIZE}")"
+  estimated_batches="$(ceil_div "${per_rank_samples}" "${BATCH_SIZE}")"
+  if (( estimated_batches < 1 )); then
+    estimated_batches=1
+  fi
+  if (( VAL_CHECK_INTERVAL > estimated_batches )); then
+    echo "Adjusting VAL_CHECK_INTERVAL from ${VAL_CHECK_INTERVAL} to ${estimated_batches} (estimated batches per rank)."
+    VAL_CHECK_INTERVAL="${estimated_batches}"
+  fi
+fi
+
 export TOPBRAIN_FINETUNE_DIR
 cd "${REPO_ROOT}"
 
