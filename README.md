@@ -80,6 +80,15 @@ bash ./scripts/train_topbrain_finetune.sh
 bash ./scripts/test_topbrain_inference.sh
 ```
 
+4) 用“回写原始影像空间信息”的独立推理脚本（不影响原训练/测试流程）：
+
+```bash
+bash ./scripts/test_topbrain_inference_registered.sh
+```
+
+- 该脚本会在写出预测 `nii.gz` 时继承输入 CTA 的 `spacing/origin/direction`，便于与原图直接叠加查看。
+- 默认输出后缀为 `_seg`，输出目录为 `outputs/topbrain_predictions_registered`。
+
 脚本默认路径：
 - 微调数据目录：`${TOPBRAIN_FINETUNE_DIR}`（默认 `./data/datasets/topBrain-2025/vesselfm_finetune`）
 - 预训练权重：`${PRETRAIN_CKPT}`（默认 `./modelsweights/vesselFM_base.pt`）

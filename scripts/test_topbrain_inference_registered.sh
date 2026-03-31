@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
+
+load_env_defaults() {
+  local env_file="$1"
+  [[ -f "${env_file}" ]] || return
+  while IFS='=' read -r raw_key raw_value || [[ -n "${raw_key}" ]]; do
+    local key="${raw_key#"${raw_key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    key="${key#export }"
+    [[ -z "${key}" || "${key:0:1}" == "#" ]] && continue
+
+    local value="${raw_value-}"
+    value="${value%$'\r'}"
+    if [[ -z "${!key+x}" ]]; then
+      export "${key}=${value}"
+    fi
+  done < "${env_file}"
+}
+
+load_env_defaults "${REPO_ROOT}/.env"
+
+resolve_path() {
+  local maybe_relative="$1"
+  if [[ "${maybe_relative}" = /* ]]; then
+    printf "%s\n" "${maybe_relative}"
+  else
+    printf "%s\n" "${REPO_ROOT}/${maybe_relative#./}"
+  fi
+}
+
+prepend_ld_library_path() {
+  local path_to_add="$1"
+  [[ -d "${path_to_add}" ]] || return
+  if [[ -z "${LD_LIBRARY_PATH:-}" ]]; then
+    LD_LIBRARY_PATH="${path_to_add}"
+  elif [[ ":${LD_LIBRARY_PATH}:" != *":${path_to_add}:"* ]]; then
+    LD_LIBRARY_PATH="${path_to_add}:${LD_LIBRARY_PATH}"
+  fi
+}
+
+configure_venv_cuda_libs() {
+  [[ -n "${VIRTUAL_ENV:-}" ]] || return
+  local p
+  for p in \
+    "${VIRTUAL_ENV}"/lib/python*/site-packages/nvidia/nvjitlink/lib \
+    "${VIRTUAL_ENV}"/lib/python*/site-packages/nvidia/cusparse/lib \
+    "${VIRTUAL_ENV}"/lib/python*/site-packages/nvidia/cudnn/lib \
+    "${VIRTUAL_ENV}"/lib/python*/site-packages/nvidia/cublas/lib \
+    "${VIRTUAL_ENV}"/lib/python*/site-packages/nvidia/cuda_runtime/lib; do
+    prepend_ld_library_path "${p}"
+  done
+  export LD_LIBRARY_PATH
+}
+
+DATASET_DIR="$(resolve_path "${DATASET_DIR:-./data/datasets/topBrain-2025}")"
+CHECKPOINTS_DIR="$(resolve_path "${CHECKPOINTS_DIR:-./checkpoints}")"
+OUTPUTS_DIR="$(resolve_path "${OUTPUTS_DIR:-./outputs}")"
+
+GPU_DEVICE="${GPU_DEVICE:-0}"
+INFER_DEVICE="${INFER_DEVICE:-${GPU_DEVICE}}"
+INFER_BATCH_SIZE="${INFER_BATCH_SIZE:-4}"
+INFER_PATCH_SIZE="${INFER_PATCH_SIZE:-[128,128,128]}"
+INFER_OVERLAP="${INFER_OVERLAP:-0.5}"
+OUTPUT_SUFFIX="${OUTPUT_SUFFIX:-_seg}"
+
+configure_venv_cuda_libs
+
+mkdir -p "${OUTPUTS_DIR}"
+
+if [[ -z "${CKPT_PATH:-}" ]]; then
+  CKPT_PATH="$(
+    find "${CHECKPOINTS_DIR}" -type f -name "*.ckpt" -print0 \
+      | xargs -0 ls -1t 2>/dev/null \
+      | head -n 1
+  )"
+fi
+
+if [[ -z "${CKPT_PATH:-}" ]]; then
+  echo "No .ckpt file found under ${CHECKPOINTS_DIR}. Set CKPT_PATH manually." >&2
+  exit 1
+fi
+
+CKPT_PATH="$(resolve_path "${CKPT_PATH}")"
+
+if [[ -n "${IMAGE_PATH:-}" ]]; then
+  IMAGE_PATH="$(resolve_path "${IMAGE_PATH}")"
+elif [[ -d "${DATASET_DIR}/imagesTs" ]]; then
+  IMAGE_PATH="${DATASET_DIR}/imagesTs"
+else
+  IMAGE_PATH="${DATASET_DIR}/imagesTr"
+fi
+
+if [[ -n "${MASK_PATH:-}" ]]; then
+  MASK_PATH="$(resolve_path "${MASK_PATH}")"
+  MASK_OVERRIDE="mask_path=${MASK_PATH}"
+else
+  if [[ -f "${IMAGE_PATH}" ]]; then
+    image_name="$(basename "${IMAGE_PATH}")"
+    if [[ -f "${DATASET_DIR}/labelsTs/${image_name}" ]]; then
+      MASK_PATH="${DATASET_DIR}/labelsTs/${image_name}"
+      MASK_OVERRIDE="mask_path=${MASK_PATH}"
+    elif [[ -f "${DATASET_DIR}/labelsTr/${image_name}" ]]; then
+      MASK_PATH="${DATASET_DIR}/labelsTr/${image_name}"
+      MASK_OVERRIDE="mask_path=${MASK_PATH}"
+    else
+      MASK_OVERRIDE="mask_path=null"
+    fi
+  elif [[ -d "${IMAGE_PATH}" ]]; then
+    if [[ "${IMAGE_PATH}" == */imagesTs ]] && [[ -d "${DATASET_DIR}/labelsTs" ]]; then
+      MASK_PATH="${DATASET_DIR}/labelsTs"
+      MASK_OVERRIDE="mask_path=${MASK_PATH}"
+    elif [[ "${IMAGE_PATH}" == */imagesTr ]] && [[ -d "${DATASET_DIR}/labelsTr" ]]; then
+      MASK_PATH="${DATASET_DIR}/labelsTr"
+      MASK_OVERRIDE="mask_path=${MASK_PATH}"
+    elif [[ -d "${DATASET_DIR}/labelsTs" ]]; then
+      MASK_PATH="${DATASET_DIR}/labelsTs"
+      MASK_OVERRIDE="mask_path=${MASK_PATH}"
+    elif [[ -d "${DATASET_DIR}/labelsTr" ]]; then
+      MASK_PATH="${DATASET_DIR}/labelsTr"
+      MASK_OVERRIDE="mask_path=${MASK_PATH}"
+    else
+      MASK_OVERRIDE="mask_path=null"
+    fi
+  else
+    echo "IMAGE_PATH does not exist: ${IMAGE_PATH}" >&2
+    exit 1
+  fi
+fi
+
+PRED_DIR="$(resolve_path "${PRED_DIR:-${OUTPUTS_DIR}/topbrain_predictions_registered}")"
+mkdir -p "${PRED_DIR}"
+
+if [[ "${INFER_DEVICE}" == *,* ]]; then
+  echo "INFER_DEVICE must be a single device (e.g. 0 or cuda:0), got: ${INFER_DEVICE}" >&2
+  exit 1
+fi
+
+if [[ "${INFER_DEVICE}" == cuda:* ]]; then
+  INFER_DEVICE_IDX="${INFER_DEVICE#cuda:}"
+elif [[ "${INFER_DEVICE}" =~ ^[0-9]+$ ]]; then
+  INFER_DEVICE_IDX="${INFER_DEVICE}"
+else
+  echo "INFER_DEVICE must be an integer id or cuda:<id>, got: ${INFER_DEVICE}" >&2
+  exit 1
+fi
+
+if [[ ! "${INFER_DEVICE_IDX}" =~ ^[0-9]+$ ]]; then
+  echo "INFER_DEVICE index must be numeric, got: ${INFER_DEVICE_IDX}" >&2
+  exit 1
+fi
+
+if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
+  visible_no_space="${CUDA_VISIBLE_DEVICES// /}"
+  IFS=',' read -r -a visible_arr <<< "${visible_no_space}"
+  visible_count="${#visible_arr[@]}"
+  if (( INFER_DEVICE_IDX >= visible_count )); then
+    echo "INFER_DEVICE=${INFER_DEVICE} is incompatible with CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}." >&2
+    echo "Visible GPU count is ${visible_count}, so valid ids are 0..$((visible_count - 1))." >&2
+    echo "Example: if CUDA_VISIBLE_DEVICES=2,5 then INFER_DEVICE should be 0 or 1." >&2
+    exit 1
+  fi
+fi
+
+DEVICE_ARG="cuda:${INFER_DEVICE_IDX}"
+
+echo "Running registered-space inference with:"
+echo "  checkpoint : ${CKPT_PATH}"
+echo "  image path : ${IMAGE_PATH}"
+echo "  output path: ${PRED_DIR}"
+echo "  device     : ${DEVICE_ARG}"
+echo "  out suffix : ${OUTPUT_SUFFIX}"
+if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
+  echo "  CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES}"
+fi
+
+cd "${REPO_ROOT}"
+
+python -m vesselfm.seg.inference_registered \
+  ckpt_path="${CKPT_PATH}" \
+  image_path="${IMAGE_PATH}" \
+  output_folder="${PRED_DIR}" \
+  device="${DEVICE_ARG}" \
+  batch_size="${INFER_BATCH_SIZE}" \
+  patch_size="${INFER_PATCH_SIZE}" \
+  overlap="${INFER_OVERLAP}" \
+  output_suffix="${OUTPUT_SUFFIX}" \
+  "${MASK_OVERRIDE}"
