@@ -1,6 +1,7 @@
 """ Script to perform inference with vesselFM."""
 
 import logging
+import os
 import warnings
 from pathlib import Path
 
@@ -37,16 +38,37 @@ def extract_state_dict(ckpt):
 
 
 def load_model(cfg, device):
-    try:
-        logger.info(f"Loading model from {cfg.ckpt_path}.")
-        ckpt = torch.load(Path(cfg.ckpt_path), map_location=device)
-    except:
-        logger.info(f"Loading model from Hugging Face.")
-        hf_hub_download(repo_id='bwittmann/vesselFM', filename='meta.yaml') # required to track downloads
-        ckpt = torch.load(
-            hf_hub_download(repo_id='bwittmann/vesselFM', filename='vesselFM_base.pt'),
-            map_location=device
-        )
+    ckpt_path = Path(cfg.ckpt_path) if cfg.ckpt_path is not None else None
+
+    if ckpt_path is not None:
+        if not ckpt_path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
+        # Always load checkpoint on CPU first to avoid invalid CUDA index issues
+        # caused by serialized device ids (e.g., cuda:7) in multi-GPU checkpoints.
+        logger.info(f"Loading model from {ckpt_path}.")
+        ckpt = torch.load(ckpt_path, map_location="cpu")
+    else:
+        local_base_ckpt = Path(getattr(cfg, "local_base_ckpt", "./modelsweights/vesselFM_base.pt"))
+        if not local_base_ckpt.is_absolute():
+            local_base_ckpt = Path.cwd() / local_base_ckpt
+
+        if local_base_ckpt.exists():
+            logger.info(f"ckpt_path not set. Loading local base checkpoint from {local_base_ckpt}.")
+            ckpt = torch.load(local_base_ckpt, map_location="cpu")
+        elif bool(getattr(cfg, "allow_hf_fallback", False)):
+            logger.info("Local base checkpoint not found. Loading model from Hugging Face.")
+            hf_hub_download(repo_id="bwittmann/vesselFM", filename="meta.yaml")  # required to track downloads
+            ckpt = torch.load(
+                hf_hub_download(repo_id="bwittmann/vesselFM", filename="vesselFM_base.pt"),
+                map_location="cpu",
+            )
+        else:
+            hf_home = os.environ.get("HF_HOME", "")
+            raise FileNotFoundError(
+                "No local checkpoint available. "
+                f"ckpt_path={cfg.ckpt_path}, local_base_ckpt={local_base_ckpt}. "
+                f"HF_HOME={hf_home}. Set ckpt_path or place vesselFM_base.pt locally."
+            )
 
     model = hydra.utils.instantiate(cfg.model)
     model.load_state_dict(extract_state_dict(ckpt), strict=True)

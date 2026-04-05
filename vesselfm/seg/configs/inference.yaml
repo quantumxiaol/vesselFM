@@ -16,6 +16,8 @@ round_to: 2
 # model & ckpt
 device: cuda:0
 ckpt_path: /path/to/ckpt.pt
+local_base_ckpt: ${oc.env:LOCAL_BASE_CKPT,./modelsweights/vesselFM_base.pt}
+allow_hf_fallback: false
 
 # sliding window inferer
 batch_size: 16
