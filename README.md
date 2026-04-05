@@ -88,6 +88,23 @@ bash ./scripts/test_topbrain_inference_registered.sh
 
 - 该脚本会在写出预测 `nii.gz` 时继承输入 CTA 的 `spacing/origin/direction`，便于与原图直接叠加查看。
 - 默认输出后缀为 `_seg`，输出目录为 `outputs/topbrain_predictions_registered`。
+- 建议显式指定 `CKPT_PATH`，避免误用 `last` 或其他历史 checkpoint。
+
+示例 A：指定 checkpoint，批量推理目录
+```bash
+CKPT_PATH=./checkpoints/vesselfm_topbrain/finetune_41shot_TOPBRAIN_topbrain/finetune_41shot_TOPBRAIN_topbrain_step:14_val_DiceMetric:0.48.ckpt \
+INFER_DEVICE=0 \
+./scripts/test_topbrain_inference_registered.sh
+```
+
+示例 B：单文件推理，输出到 `outputs/`，文件名后缀 `_seg`
+```bash
+CKPT_PATH=./checkpoints/vesselfm_topbrain/finetune_41shot_TOPBRAIN_topbrain/finetune_41shot_TOPBRAIN_topbrain_step:14_val_DiceMetric:0.48.ckpt \
+INFER_DEVICE=0 INFER_BATCH_SIZE=1 INFER_PATCH_SIZE=[96,96,96] \
+IMAGE_PATH=./data/HEAD_0_5_CE_0004.nii.gz \
+PRED_DIR=./outputs OUTPUT_SUFFIX=_seg \
+./scripts/test_topbrain_inference_registered.sh
+```
 
 脚本默认路径：
 - 微调数据目录：`${TOPBRAIN_FINETUNE_DIR}`（默认 `./data/datasets/topBrain-2025/vesselfm_finetune`）
@@ -117,6 +134,18 @@ INFER_DEVICE=0 bash ./scripts/test_topbrain_inference.sh
 ```
 
 注意：环境变量名是 `CUDA_VISIBLE_DEVICES`（不是 `CUDA_VISABLE_DEVICE`）。
+`INFER_DEVICE` / `TRAIN_DEVICES` 是相对于 `CUDA_VISIBLE_DEVICES` 的索引（不是物理卡号）。
+
+推理时建议先固定可用物理卡，再用 `INFER_DEVICE=0`：
+```bash
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+export CUDA_VISIBLE_DEVICES=2
+INFER_DEVICE=0 ./scripts/test_topbrain_inference_registered.sh
+```
+
+离线服务器说明：
+- 推理默认不依赖 Hugging Face 在线下载；请确保本地 `CKPT_PATH` 存在。
+- 若 `CKPT_PATH` 不存在会直接报错，而不是自动联网回退。
 
 常见报错排查（`__nvJitLinkComplete_12_4`）：
 - 现象：
